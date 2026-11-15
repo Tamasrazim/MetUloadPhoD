@@ -1,0 +1,79 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+
+      - name: Install build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Download FFmpeg Essentials
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'ffmpeg-essentials.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'ffmpeg-essentials'
+          Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $archive
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          7z x $archive "-o$extract" -y | Out-Null
+          $ffmpeg = Get-ChildItem -Path $extract -Filter 'ffmpeg.exe' -Recurse | Select-Object -First 1
+          if (-not $ffmpeg) { throw 'ffmpeg.exe was not found in the downloaded archive.' }
+          $ffprobe = Get-ChildItem -Path $extract -Filter 'ffprobe.exe' -Recurse | Select-Object -First 1
+          if (-not $ffprobe) { throw 'ffprobe.exe was not found in the downloaded archive.' }
+          "FFMPEG_BIN=$($ffmpeg.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $ffmpeg.FullName -L | Out-File -FilePath (Join-Path $env:RUNNER_TEMP 'ffmpeg-license.txt') -Encoding utf8
+
+      - name: Build one-file executable
+        shell: pwsh
+        run: |
+          $pyiArgs = @('--noconfirm', '--clean', '--onefile', '--windowed', '--name', 'MetUloadPhoD')
+          $bundleFiles = Get-ChildItem -Path $env:FFMPEG_BIN -File | Where-Object { $_.Name -in 'ffmpeg.exe', 'ffprobe.exe' -or $_.Extension -eq '.dll' }
+          foreach ($file in $bundleFiles) {
+            $pyiArgs += @('--add-binary', "$($file.FullName);.")
+          }
+          $pyiArgs += 'app.py'
+          pyinstaller @pyiArgs
+          if (-not (Test-Path 'dist/MetUloadPhoD.exe')) { throw 'PyInstaller did not create MetUloadPhoD.exe.' }
+
+      - name: Prepare release artifact
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item THIRD-PARTY-NOTICES.md dist/THIRD-PARTY-NOTICES.md
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'ffmpeg-license.txt') dist/FFMPEG-BUILD-LICENSE.txt
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MetUloadPhoD-windows-x64
+          path: |
+            dist/MetUloadPhoD.exe
+            dist/LICENSE.txt
+            dist/THIRD-PARTY-NOTICES.md
+            dist/FFMPEG-BUILD-LICENSE.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
