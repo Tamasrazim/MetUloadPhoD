@@ -21,20 +21,20 @@ def test_parse_rate_invalid() -> None:
 
 
 def test_resolution_caps_preserve_aspect_ratio() -> None:
-    assert app.calculate_output_size(3840, 2160, 1920) == (1920, 1080)
-    assert app.calculate_output_size(2160, 3840, 1920) == (1080, 1920)
+    assert app.output_dimensions(3840, 2160, 1920) == (1920, 1080)
+    assert app.output_dimensions(2160, 3840, 1920) == (1080, 1920)
 
 
 def test_resolution_never_upscales() -> None:
-    assert app.calculate_output_size(1920, 1080, 3840) == (1920, 1080)
-    assert app.calculate_output_size(1280, 720, None) == (1280, 720)
+    assert app.output_dimensions(1920, 1080, 3840) == (1920, 1080)
+    assert app.output_dimensions(1280, 720, None) == (1280, 720)
 
 
 def test_constant_60_cadence() -> None:
     stamps = [i / 60 for i in range(600)]
     result = app.cadence_report(stamps)
-    assert result["near_60_fps"] is True
-    assert result["constant_cadence"] is True
+    assert result["near_60"] is True
+    assert result["constant"] is True
     assert result["frame_count"] == 600
 
 
@@ -43,4 +43,4 @@ def test_variable_cadence_is_not_constant() -> None:
     for i in range(1, 100):
         stamps.append(stamps[-1] + (1 / 60 if i % 2 else 1 / 30))
     result = app.cadence_report(stamps)
-    assert result["constant_cadence"] is False
+    assert result["constant"] is False
